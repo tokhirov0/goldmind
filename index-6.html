@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoldMind AI — Lot Kalkulyator</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--tg-theme-bg-color, #121212);
+            color: var(--tg-theme-text-color, #ffffff);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: var(--tg-theme-secondary-bg-color, #1e1e1e);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        h2 { text-align: center; color: #f39c12; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-size: 14px; opacity: 0.9; }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #444;
+            border-radius: 8px;
+            background: #2c2c2c;
+            color: #fff;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #f39c12;
+            color: #121212;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover { background-color: #d68910; }
+        button.secondary { background-color: #2ecc71; }
+        .result {
+            margin-top: 20px;
+            padding: 12px;
+            background: #252525;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+        .warn { color: #e67e22; font-size: 13px; margin-top: 6px; }
+        .hint { font-size: 12px; opacity: 0.6; margin-top: 12px; text-align: center; }
+        #sendBtn { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🧮 Lot Kalkulyator</h2>
+
+        <div class="form-group">
+            <label for="balance">Depozit balansi ($):</label>
+            <input type="number" id="balance" value="1000" inputmode="decimal" min="0" placeholder="Masalan: 1000">
+        </div>
+
+        <div class="form-group">
+            <label for="risk">Risk foizi (%):</label>
+            <input type="number" id="risk" value="2" step="0.5" inputmode="decimal" min="0" placeholder="Masalan: 2">
+        </div>
+
+        <div class="form-group">
+            <label for="sl">Stop-Loss (pips, 1 pip = $0.10 narx):</label>
+            <input type="number" id="sl" value="30" inputmode="decimal" min="0" placeholder="Masalan: 30">
+        </div>
+
+        <button onclick="calculateLot()">Hisoblash</button>
+
+        <div class="result" id="resultBlock">
+            Tavsiya etilgan lot: <b id="lotResult">—</b>
+            <div id="riskInfo"></div>
+            <div class="warn" id="warnInfo"></div>
+        </div>
+
+        <button id="sendBtn" class="secondary" onclick="sendToBot()">📤 Natijani botga yuborish</button>
+        <div class="hint">Oltin (XAU/USD): 1 lot = 100 oz, 1 pip da ≈ $10</div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        const PIP_VALUE_PER_LOT = 10; // XAU/USD: 1 lot da 1 pip (=$0.10 narx harakati) ≈ $10
+        let lastResult = null;
+
+        function showError(msg) {
+            if (tg.showAlert) { tg.showAlert(msg); } else { alert(msg); }
+        }
+
+        function calculateLot() {
+            const balance = parseFloat(document.getElementById('balance').value) || 0;
+            const riskPercent = parseFloat(document.getElementById('risk').value) || 0;
+            const slPips = parseFloat(document.getElementById('sl').value) || 0;
+
+            if (balance <= 0 || riskPercent <= 0 || slPips <= 0) {
+                showError("Barcha qiymatlarni 0 dan katta kiriting!");
+                return;
+            }
+
+            const riskAmount = (balance * riskPercent) / 100;
+            const rawLot = riskAmount / (slPips * PIP_VALUE_PER_LOT);
+
+            // Pastga yaxlitlaymiz — risk belgilangan foizdan oshib ketmasligi uchun
+            let lot = Math.floor(rawLot * 100) / 100;
+            let warn = "";
+            if (lot < 0.01) {
+                lot = 0.01;
+                warn = "⚠️ Minimal lot (0.01) sizning riskingizdan kattaroq!";
+            }
+
+            const realRisk = lot * slPips * PIP_VALUE_PER_LOT;
+            const realRiskPct = (realRisk / balance) * 100;
+
+            document.getElementById('lotResult').innerText = lot.toFixed(2);
+            document.getElementById('riskInfo').innerText =
+                "Haqiqiy risk: $" + realRisk.toFixed(2) + " (" + realRiskPct.toFixed(2) + "%)";
+            document.getElementById('warnInfo').innerText = warn;
+
+            lastResult = {
+                balance: balance,
+                risk: riskPercent,
+                sl: slPips,
+                recommended_lot: lot
+            };
+            document.getElementById('sendBtn').style.display = 'block';
+        }
+
+        // sendData Mini App ni yopib yuboradi, shuning uchun alohida tugma bilan yuboriladi
+        function sendToBot() {
+            if (!lastResult) {
+                showError("Avval hisoblang!");
+                return;
+            }
+            tg.sendData(JSON.stringify(lastResult));
+        }
+    </script>
+</body>
+</html>
